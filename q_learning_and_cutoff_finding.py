@@ -1,3 +1,8 @@
+# Uses Monte Carlo iteration (gamma = 0.8) to learn the values of each action for the stacking game.
+# Finds the optimal way to convert values into a tabular yes/no policy for each action, by comparing to the idealized move() policy.
+# Example result of running code:
+# Optimal cutoff: 0.900000 (sensitivity = 0.746032, specificity = 0.760976)
+
 import random
 
 class Stack:
@@ -146,9 +151,7 @@ def random_action(env):
         if stack.is_move_valid(blocks[i], blocks[j]):
             return (blocks[i], blocks[j])
 
-# to do: redo it so the policy only produces actions that are "possible"?
-# Ramyaa never mentioned what reward I should return when moving can't be done, so I guess I just avoid choosing those actions altogether
-# UPDATE: Done.
+# determines whether two states (represented as arrays) are equivalent
 def is_equivalent(state1, state2):
     if [] in state1:
         state1 = state1[:]
@@ -162,64 +165,95 @@ def is_equivalent(state1, state2):
     sorted_state2 = sorted(state2, key=lambda x: (len(x), ord(x[0]) if len(x) > 0 else 0))
     return sorted_state1 == sorted_state2
 
-# Learn the Q-table by generating episodes repeatedly
-# The output of this process should be a table mapping certain states to the value of each possible action.
+# convert a state to canonical form
 def normalize(state):
     state = state[:] # make a copy
     while [] in state:
         state.remove([])
     return sorted(state, key=lambda x: (len(x), ord(x[0]) if len(x) > 0 else 0))
 
-stackings = []
-# Counter: a list of dictionaries mapping (X, Y) to the number of counts of move(X, Y).
-# One dictionary for each state.
-counter = []
-# Qtable is similar, but it maps (X, Y) to the Q-value of move(X, Y).
-Qtable = []
+# Learn the Q-table by generating episodes repeatedly using Monte Carlo iteration
+# The output of this process should be a table mapping certain states to the value of each possible action.
 
-maxiter = 20000
-for h in range(maxiter):
-    (states, actions, rewards, returns) = gen_episode(random_action)
-    reached_states = [] # all states reached this episode
-    for i, state in enumerate(states):
-        if state == None:
-            break
-        if actions[i] == None:
-            break
-        state = normalize(state) # convert state to canonical form
-        # If this is a genuinely new state, add it to the tables.
-        if state not in stackings:
-            stackings.append(state)
-            counter.append(dict())
-            Qtable.append(dict())
-        if state not in reached_states:
-            # add state to reached_states (for this episode)
-            reached_states.append(state)
-            # add value of state to table
-            j = stackings.index(state)
-            if actions[i] in counter[j]:
-                counter[j][actions[i]] += 1
-                Qtable[j][actions[i]] += returns[i + 1]
+def learn_Qtable():
+    # a list of states reached in canonical form
+    stackings = []
+    # Counter: a list of dictionaries mapping (X, Y) to the number of counts of move(X, Y).
+    # One dictionary for each state.
+    counter = []
+    # Qtable is similar, but it maps (X, Y) to the Q-value of move(X, Y).
+    Qtable = []
+
+    maxiter = 20000
+    for h in range(maxiter):
+        (states, actions, rewards, returns) = gen_episode(random_action)
+        reached_states = [] # all states reached this episode
+        for i, state in enumerate(states):
+            if state == None:
+                break
+            if actions[i] == None:
+                break
+            state = normalize(state) # convert state to canonical form
+            # If this is a genuinely new state, add it to the tables.
+            if state not in stackings:
+                stackings.append(state)
+                counter.append(dict())
+                Qtable.append(dict())
+            if state not in reached_states:
+                # add state to reached_states (for this episode)
+                reached_states.append(state)
+                # add value of state to table
+                j = stackings.index(state)
+                if actions[i] in counter[j]:
+                    counter[j][actions[i]] += 1
+                    Qtable[j][actions[i]] += returns[i + 1]
+                else:
+                    counter[j][actions[i]] = 1
+                    Qtable[j][actions[i]] = returns[i + 1]
+
+    # divide each value in Q by the number of ocurrences to get the average Q value
+    for i, Qstate in enumerate(Qtable):
+        for act in Qstate:
+            Qstate[act] /= counter[i][act]
+
+    return stackings, Qtable
+
+# find optimal threshold for converting numeric values of actions into yes/no policy for each action
+# this function finds a threshold with predicts the idealized move() policy with almost the same level of sensitivity as specificity
+def find_cutoff_value(stackings, Qtable):
+    # In general, higher action values should correspond to actions that are part of the move() policy.
+    # First, refactor Q table into a single dictionary: (state_ID, X, Y) -> value
+    Qtable_dict = {}
+    for i, Qstate in enumerate(Qtable):
+        for act in Qstate:
+            Qtable_dict[(i, act[0], act[1])] = Qstate[act]
+
+    # Set up a list of all action values and corresponding idealized policy values
+    data = []
+    for key in Qtable_dict:
+        data.append([Qtable_dict[key], move(stackings[key[0]], key[1], key[2])])
+
+    sensitivities = []
+    specificities = []
+    cutoff = -30.0
+    while cutoff < 50.0: # may need to change these values
+        # fraction of actual positives that are recognized as positive
+        sensitivities.append(len([[x, y] for [x, y] in data if x > cutoff and y == True])/len([[x, y] for [x, y] in data if y == True]))
+        # fraction of actual negative examples that are recognized as negative
+        specificities.append(len([[x, y] for [x, y] in data if x <= cutoff and y == False])/len([[x, y] for [x, y] in data if y == False]))
+        cutoff += 0.1
+    
+    for i in range(len(sensitivities)):
+        if specificities[i] > sensitivities[i]:
+            if i == 0:
+                return -30.0, sensitivities[0], specificities[0]
+            # The specificity increases from 0 while the sensitivity decreases from 1. At the crossover point, find the index where the two values are closest, leading to the cutoff point.
+            if abs(specificities[i] - sensitivities[i]) > abs(specificities[i - 1] - sensitivities[i - 1]):
+                return -30.0 + 0.1*(i - 1), sensitivities[i - 1], specificities[i - 1]
             else:
-                counter[j][actions[i]] = 1
-                Qtable[j][actions[i]] = returns[i + 1]
+                return -30.0 + 0.1*i, sensitivities[i], specificities[i]
+    return 49.5, sensitivities[-1], specificities[-1] 
 
-# divide each value in Q by the number of ocurrences to get the average Q value
-for i, Qstate in enumerate(Qtable):
-    for act in Qstate:
-        Qstate[act] /= counter[i][act]
-
-# Plot a ROC curve to see how well value > n predicts move(X, Y)
-# Set up a table with all state+actions and values
-data = []
-for key in Qtable_dict:
-    data.append([Qtable_dict[key], move(stackings[key[0]], key[1], key[2])])
-
-sensitivities = []
-specificities = []
-cutoff = -30
-while cutoff < 50: # may need to change these values
-    sensitivities.append(len([[x, y] for [x, y] in data if x > cutoff and y == True])/len([[x, y] for [x, y] in data if y == True]))
-    specificities.append(len([[x, y] for [x, y] in data if x <= cutoff and y == False])/len([[x, y] for [x, y] in data if y == False]))
-    cutoff += 0.1
-print(sensitivities, specificities)
+stackings, Qtable = learn_Qtable()
+cutoff, sens, spec = find_cutoff_value(stackings, Qtable)
+print(cutoff, sens, spec)
