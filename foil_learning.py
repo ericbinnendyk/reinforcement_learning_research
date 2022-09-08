@@ -5,6 +5,7 @@ import pickle
 import numpy as np
 # Import my code's state normalize function
 from normalize import normalize
+from cutoff_finding import find_cutoff_value
 
 # import results from previous
 with open("maximus_code/V3.1/Dict4.pkl", "rb") as f:
@@ -76,7 +77,7 @@ for i in range(len(states)):
     stackings.append(convert_stack_format(list(states.keys())[list(states.values()).index(i)])) # This one-liner for getting key from value was gotten here: https://www.geeksforgeeks.org/python-get-key-from-value-in-dictionary/
 
 # print some of the stackings in my list format
-print(stackings[:10])
+#print(stackings[:10])
 print("There are", len(stackings), "stackings")
 
 def location(state, X):
@@ -200,21 +201,27 @@ def new_existential_var():
 # try learning without recursive predicates
 # This takes time to run. Uncomment the input() statements to see intermediate progress.
 
-# to do: add code for getting cutoff value for true/false based on sensitivity and specificity
-# i wrote it earlier
-optimal_cutoff = 0.9
+optimal_cutoff = find_cutoff_value(stackings, Qtable)
+print("Optimal cutoff value {} (sensitivity = {}, specificity = {})".format(*optimal_cutoff))
 
 # convert Q table to Boolean policy based on previously decided cutoff value
 move_table = [] # fill this with the same info as Qtable, except where each move gets a "true" or "false"
 for Qstate in Qtable:
     move_state = dict()
     for act in Qstate:
-        move_state[act] = (Qstate[act] > optimal_cutoff) # A cutoff of 0.9 was decided as it gives almost the same true positive and true negative rates
+        move_state[act] = (Qstate[act] > optimal_cutoff[0])
     move_table.append(move_state)
 #print(move_table)
 preds = ['on', 'top', 'isFloor', 'neq']
 
 print("An example row from the move table is", move_table[0])
+
+'''
+# print learned Boolean tabular policy
+for state, Qstate, move_state in zip(stackings, Qtable, move_table):
+    print("{}:".format(state))
+    for (X, Y) in move_state:
+        print("    move({}, {}) = {} (reward = {})".format(X, Y, move_state[(X, Y)], Qstate[(X, Y)]))'''
 
 # learn logical formula for the tabular policy
 # To do: This seems to have an infinite loop. Why?

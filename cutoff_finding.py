@@ -1,5 +1,7 @@
 # single function from q_learning_and_cutoff_finding.py, for use as a library file
 
+from stack_environment import move
+
 # find optimal threshold for converting numeric values of actions into yes/no policy for each action
 # this function finds a threshold with predicts the idealized move() policy with almost the same level of sensitivity as specificity
 def find_cutoff_value(stackings, Qtable):
