@@ -241,7 +241,10 @@ for state, move_state in zip(stackings, move_table):
 
 print("Cardinality of pos starts as", len(pos))
 #input()
-while len(pos) > 0:
+num_ands = 0
+full_pred = []
+# only learn at most 10 conjunctive clauses in predicate
+while len(pos) > 0 and num_ands < 10:
     curr_clause = []
     info_gains = []
     usable_variables = ['X', 'Y', 'a'] # the variables that the learner can use in the next predicate in the clause
@@ -249,6 +252,7 @@ while len(pos) > 0:
     # learn an "and" clause that matches a subset of all positive examples
     while len(new_rule_neg) > 0:
         info_gain = dict() # information gain from each predicate. predicate is stored as a tuple as key
+        # Iterate through all possible predicates and variable assignments
         for pred in preds:
             ev = new_existential_var()
             if pred in ['top', 'isFloor']: # these predicates only take one argument
@@ -305,4 +309,8 @@ while len(pos) > 0:
     # Remove the positive examples that satisfy the previous clause
     pos = [(state, X, Y) for (state, X, Y) in pos if not test(state, curr_clause, X, Y)]
     print("Cardinality of pos is", len(pos))
+    num_ands += 1
+    full_pred.append(curr_clause)
     #input()
+
+print("Final predicate learned:", full_pred)
